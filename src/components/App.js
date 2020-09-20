@@ -8,20 +8,22 @@ import Footer from "./Footer";
 
 import "../css/App.css";
 
-const SUB = new NchanSubscriber(
-  "wss://coderadio-admin.freecodecamp.org/api/live/nowplaying/coderadio"
-);
-
 export default class App extends React.Component {
+  /**
+   * General configuration options
+   */
+  config = {
+    metadataTimer: 1000
+  };
+
   constructor(props) {
     super(props);
     this.state = {
-      /** *
-       * General configuration options
+      /**
+       * WebSocket instance
        */
-      config: {
-        metadataTimer: 1000
-      },
+      SUB: null,
+
       fastConnection: navigator.connection
         ? navigator.connection.downlink > 1.5
         : null,
@@ -100,7 +102,7 @@ export default class App extends React.Component {
 
   componentDidMount() {
     this.setPlayerInitial();
-    this.getNowPlaying();
+    this.connect();
   }
 
   /** *
@@ -128,6 +130,8 @@ export default class App extends React.Component {
   }
 
   play() {
+    const { SUB } = this.state;
+
     if (this._player.paused) {
       if (!SUB.running) {
         SUB.start();
@@ -145,6 +149,8 @@ export default class App extends React.Component {
   }
 
   pause() {
+    const { SUB } = this.state;
+
     this._player.pause();
     this.setState({
       playing: false
@@ -299,38 +305,82 @@ export default class App extends React.Component {
     });
   }
 
-  getNowPlaying() {
-    SUB.on("message", message => {
-      let np = JSON.parse(message);
+  getNowPlaying(np) {
+    // We look through the available mounts to find the default mount
+    if (this.state.url === "") {
+      this.setState({
+        mounts: np.station.mounts,
+        remotes: np.station.remotes
+      });
+      this.setMountToConnection(np.station.mounts, np.station.remotes);
+    }
 
-      // We look through the available mounts to find the default mount
-      if (this.state.url === "") {
-        this.setState({
-          mounts: np.station.mounts,
-          remotes: np.station.remotes
-        });
-        this.setMountToConnection(np.station.mounts, np.station.remotes);
-      }
+    if (this.state.listeners !== np.listeners.current) {
+      this.setState({
+        listeners: np.listeners.current
+      });
+    }
 
-      if (this.state.listeners !== np.listeners.current) {
-        this.setState({
-          listeners: np.listeners.current
-        });
-      }
-
-      // We only need to update the metadata if the song has been changed
-      // console.log(np.now_playing);
-      if (np.now_playing.song.id !== this.state.currentSong.id) {
-        this.setState({
-          currentSong: np.now_playing.song,
-          songStartedAt: np.now_playing.played_at * 1000,
-          songDuration: np.now_playing.duration
-        });
-      }
-    });
-    SUB.reconnectTimeout = this.state.config.metadataTimer;
-    SUB.start();
+    // We only need to update the metadata if the song has been changed
+    // console.log(np.now_playing);
+    if (np.now_playing.song.id !== this.state.currentSong.id) {
+      this.setState({
+        currentSong: np.now_playing.song,
+        songStartedAt: np.now_playing.played_at * 1000,
+        songDuration: np.now_playing.duration
+      });
+    }
   }
+
+  connect = () => {
+    const { metadataTimer } = this.config;
+    const { SUB: prevSub } = this.state;
+
+    const SUB = new NchanSubscriber(
+      "wss://coderadio-admin.freecodecamp.org/api/live/nowplaying/coderadio",
+      { subscriber: "websocket" }
+    );
+    let connectInterval;
+
+
+    console.log("App -> connect -> SUB -- before", SUB)
+    SUB.lastMessageId = prevSub && prevSub.lastMessageId;
+    console.log("App -> connect -> SUB -- after", SUB)
+    SUB.start();
+
+    SUB.on("message", message => {
+      this.setState({ SUB });
+      console.log("----- connected", SUB);
+
+      // clear interval when the websocket connection is opened
+      clearTimeout(connectInterval);
+
+      this.getNowPlaying(JSON.parse(message));
+    });
+
+    SUB.on("disconnect", () => {
+      // call the `checkConnection` function after timeout
+      connectInterval = setTimeout(this.checkConnection, metadataTimer);
+    });
+
+  };
+
+  // Check if the connection is closed. If it is, attempt to reconnect
+  checkConnection = () => {
+    const { SUB } = this.state;
+
+    // safely extract the value of readyState from the websocket instance
+    const readyState =
+      SUB && SUB.transport && SUB.transport.listener
+        ? SUB.transport.listener.readyState
+        : null;
+
+    // If the websocket instance doesn't exist or the connection is closed,
+    // call the `connect` function.
+    if (!SUB || readyState === WebSocket.CLOSED) {
+      this.connect();
+    }
+  };
 
   increaseVolume = () =>
     this.setTargetVolume(
