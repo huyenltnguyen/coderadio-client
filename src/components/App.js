@@ -104,6 +104,7 @@ export default class App extends React.Component {
   componentDidMount() {
     this.setPlayerInitial();
     this.connect();
+    console.log(new Date());
   }
 
   /** *
@@ -364,14 +365,14 @@ export default class App extends React.Component {
     );
     let connectInterval;
 
-    console.log("App -> connect -> SUB -- before", SUB);
-    SUB.lastMessageId = prevSub && prevSub.lastMessageId;
-    console.log("App -> connect -> SUB -- after", SUB);
+    // console.log("App -> connect -> SUB -- before", SUB);
+    // SUB.lastMessageId = prevSub && prevSub.lastMessageId;
+    // console.log("App -> connect -> SUB -- after", SUB);
     SUB.start();
 
     SUB.on("message", message => {
       this.setState({ SUB });
-      console.log("----- connected", SUB);
+      console.log(`----- connected at ${new Date()} with`, JSON.parse(message));
 
       // clear interval when the websocket connection is opened
       clearTimeout(connectInterval);
@@ -380,14 +381,22 @@ export default class App extends React.Component {
     });
 
     SUB.on("disconnect", () => {
+      console.log("----- disconnected at", new Date());
+
       // call the `checkConnection` function after timeout
       connectInterval = setTimeout(this.checkConnection, metadataTimer);
+    });
+
+    SUB.on("error", (errorCode, errorDescription) => {
+      console.log("------ error code", errorCode);
+      console.log("------ error description", errorDescription);
     });
   };
 
   // Check if the connection is closed. If it is, attempt to reconnect
   checkConnection = () => {
     const { SUB } = this.state;
+    console.log("----- checking connection at", new Date());
 
     // safely extract the value of readyState from the websocket instance
     const readyState =
@@ -398,6 +407,7 @@ export default class App extends React.Component {
     // If the websocket instance doesn't exist or the connection is closed,
     // call the `connect` function.
     if (!SUB || readyState === WebSocket.CLOSED) {
+      console.log("----- reconnecting at", new Date());
       this.connect();
     }
   };
@@ -462,6 +472,7 @@ export default class App extends React.Component {
         this.setUrl(availableUrls[0]);
       } else {
         // Otherwise, add the url to the errored list, then use another url
+        console.log("------ switched stream at", new Date());
         this.setState({ erroredStreams: newErroredStreams }, () =>
           this.setUrl(availableUrls[0])
         );
